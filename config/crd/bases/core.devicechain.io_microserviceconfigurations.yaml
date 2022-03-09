@@ -5,22 +5,21 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
-  name: tenants.core.devicechain.io
+  name: microserviceconfigurations.core.devicechain.io
 spec:
   group: core.devicechain.io
   names:
-    kind: Tenant
-    listKind: TenantList
-    plural: tenants
-    shortNames:
-    - dct
-    singular: tenant
+    kind: MicroserviceConfiguration
+    listKind: MicroserviceConfigurationList
+    plural: microserviceconfigurations
+    singular: microserviceconfiguration
   scope: Namespaced
   versions:
   - name: v1beta1
     schema:
       openAPIV3Schema:
-        description: Tenant is the Schema for the tenants API
+        description: MicroserviceConfiguration is the Schema for the microserviceconfigurations
+          API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -35,20 +34,19 @@ spec:
           metadata:
             type: object
           spec:
-            description: TenantSpec defines the desired state of Tenant
+            description: MicroserviceConfigurationSpec defines the desired state of
+              MicroserviceConfiguration
             properties:
-              description:
-                description: Human-readable description displayed for tenant.
-                type: string
-              name:
-                description: Human-readable name displayed for tenant.
-                type: string
+              configuration:
+                description: Instance configuration information.
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
             required:
-            - description
-            - name
+            - configuration
             type: object
           status:
-            description: TenantStatus defines the observed state of Tenant
+            description: MicroserviceConfigurationStatus defines the observed state
+              of MicroserviceConfiguration
             type: object
         type: object
     served: true

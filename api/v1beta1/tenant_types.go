@@ -17,9 +17,6 @@ type TenantSpec struct {
 
 	// Human-readable description displayed for tenant.
 	Description string `json:"description"`
-
-	// Tenant configuration information.
-	Configuration EntityConfiguration `json:"configuration"`
 }
 
 // TenantStatus defines the observed state of Tenant

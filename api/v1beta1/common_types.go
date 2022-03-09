@@ -6,7 +6,9 @@ Proprietary and confidential.
 
 package v1beta1
 
-import "encoding/json"
+import (
+	"encoding/json"
+)
 
 // Opaque configuration data specific to an entity.
 type EntityConfiguration struct {
