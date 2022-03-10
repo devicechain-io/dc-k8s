@@ -12,6 +12,8 @@ spec:
     kind: MicroserviceConfiguration
     listKind: MicroserviceConfigurationList
     plural: microserviceconfigurations
+    shortNames:
+    - dcmc
     singular: microserviceconfiguration
   scope: Namespaced
   versions:

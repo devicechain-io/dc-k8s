@@ -21,6 +21,7 @@ type InstanceConfigurationStatus struct {
 }
 
 //+kubebuilder:object:root=true
+//+kubebuilder:resource:scope=Cluster,shortName=dcic
 //+kubebuilder:subresource:status
 
 // InstanceConfiguration is the Schema for the instanceconfigurations API

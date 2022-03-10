@@ -12,8 +12,10 @@ spec:
     kind: InstanceConfiguration
     listKind: InstanceConfigurationList
     plural: instanceconfigurations
+    shortNames:
+    - dcic
     singular: instanceconfiguration
-  scope: Namespaced
+  scope: Cluster
   versions:
   - name: v1beta1
     schema:

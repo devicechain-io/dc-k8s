@@ -23,6 +23,7 @@ type MicroserviceConfigurationStatus struct {
 }
 
 //+kubebuilder:object:root=true
+//+kubebuilder:resource:shortName=dcmc
 //+kubebuilder:subresource:status
 
 // MicroserviceConfiguration is the Schema for the microserviceconfigurations API
