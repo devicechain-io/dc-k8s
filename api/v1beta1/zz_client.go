@@ -8,7 +8,6 @@ package v1beta1
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log"
 
@@ -82,6 +81,18 @@ func getNamespace(nsid string) (*v1.Namespace, error) {
 	return ns, nil
 }
 
+// Get instance configuraion by id
+func getInstanceConfiguration(id string) (*InstanceConfiguration, error) {
+	ic := &InstanceConfiguration{}
+	err := V1Beta1Client.Get(context.Background(), client.ObjectKey{
+		Name: id,
+	}, ic)
+	if err != nil {
+		return nil, err
+	}
+	return ic, nil
+}
+
 // Information required to create a DeviceChain instance.
 type InstanceCreateRequest struct {
 	Id              string
@@ -92,7 +103,7 @@ type InstanceCreateRequest struct {
 
 // Create a new DeviceChain instance CR.
 func CreateInstance(request InstanceCreateRequest) (*Instance, error) {
-	config, err := json.Marshal(request)
+	ic, err := getInstanceConfiguration(request.ConfigurationId)
 	if err != nil {
 		return nil, err
 	}
@@ -102,9 +113,10 @@ func CreateInstance(request InstanceCreateRequest) (*Instance, error) {
 			Name: request.Id,
 		},
 		Spec: InstanceSpec{
-			Name:          request.Name,
-			Description:   request.Description,
-			Configuration: EntityConfiguration{RawMessage: config},
+			Name:            request.Name,
+			Description:     request.Description,
+			ConfigurationId: request.ConfigurationId,
+			Configuration:   EntityConfiguration{RawMessage: ic.Spec.Configuration.RawMessage},
 		},
 	}
 
@@ -195,6 +207,84 @@ func CreateTenant(request TenantCreateRequest) (*Tenant, error) {
 		return nil, err
 	}
 	return tenant, nil
+}
+
+// Information required to get a microservice configuration.
+type MicroserviceConfigurationGetRequest struct {
+	Id string
+}
+
+// Get an microservice configuration based on request criteria
+func GetMicroserviceConfiguration(request MicroserviceConfigurationGetRequest) (*MicroserviceConfiguration, error) {
+	msconfig := &MicroserviceConfiguration{}
+	err := V1Beta1Client.Get(context.Background(), client.ObjectKey{
+		Name: request.Id,
+	}, msconfig)
+	if err != nil {
+		return nil, err
+	}
+	return msconfig, nil
+}
+
+// Information required to create a DeviceChain microservice.
+type MicroserviceCreateRequest struct {
+	Id              string
+	InstanceId      string
+	Name            string
+	Description     string
+	ConfigurationId string
+}
+
+// Create a new DeviceChain microservice CR.
+func CreateMicroservice(request MicroserviceCreateRequest) (*Microservice, error) {
+	if request.InstanceId == "" {
+		return nil, errors.New("instance id must be provided when creating microservice")
+	}
+	instance, err := GetInstance(InstanceGetRequest{Id: request.InstanceId})
+	if err != nil {
+		return nil, err
+	}
+
+	if request.ConfigurationId == "" {
+		return nil, errors.New("configuration id must be provided when creating microservice")
+	}
+	msc, err := GetMicroserviceConfiguration(MicroserviceConfigurationGetRequest{Id: request.ConfigurationId})
+	if err != nil {
+		return nil, err
+	}
+
+	// Create ms in instance namespace
+	ms := &Microservice{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      request.Id,
+			Namespace: instance.GetObjectMeta().GetName(),
+		},
+		Spec: MicroserviceSpec{
+			Name:            request.Name,
+			Description:     request.Description,
+			FunctionalArea:  msc.Spec.FunctionalArea,
+			Image:           msc.Spec.Image,
+			ImagePullPolicy: v1.PullAlways,
+			ConfigurationId: request.ConfigurationId,
+			Configuration:   EntityConfiguration{RawMessage: msc.Spec.Configuration.RawMessage},
+		},
+	}
+
+	// Attempt to create the microservice.
+	err = V1Beta1Client.Create(context.Background(), ms)
+	if err != nil {
+		return nil, err
+	}
+
+	// Attempt to get the created microservice.
+	err = V1Beta1Client.Get(context.Background(), client.ObjectKey{
+		Name:      request.Id,
+		Namespace: instance.GetObjectMeta().GetName(),
+	}, ms)
+	if err != nil {
+		return nil, err
+	}
+	return ms, nil
 }
 
 func init() {

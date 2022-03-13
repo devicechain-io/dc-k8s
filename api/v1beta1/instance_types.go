@@ -18,6 +18,9 @@ type InstanceSpec struct {
 	// Human-readable description displayed for instance.
 	Description string `json:"description"`
 
+	// Id of the instance configuration resource used to load config.
+	ConfigurationId string `json:"configId"`
+
 	// Instance configuration information.
 	Configuration EntityConfiguration `json:"configuration"`
 }

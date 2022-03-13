@@ -37,6 +37,10 @@ spec:
           spec:
             description: InstanceSpec defines the desired state of Instance
             properties:
+              configId:
+                description: Id of the instance configuration resource used to load
+                  config.
+                type: string
               configuration:
                 description: Instance configuration information.
                 type: object
@@ -48,6 +52,7 @@ spec:
                 description: Human-readable name displayed for instance.
                 type: string
             required:
+            - configId
             - configuration
             - description
             - name

@@ -28,8 +28,11 @@ type MicroserviceSpec struct {
 	// Indicates pull policy used for pulling Docker image.
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 
-	// Tenant configuration information.
-	DefaultConfiguration EntityConfiguration `json:"defaultConfiguration"`
+	// Id of the microservice configuration resource used to load config.
+	ConfigurationId string `json:"configId"`
+
+	// Microservice configuration information.
+	Configuration EntityConfiguration `json:"configuration"`
 }
 
 // MicroserviceStatus defines the observed state of Microservice

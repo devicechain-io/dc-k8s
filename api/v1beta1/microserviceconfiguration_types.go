@@ -12,18 +12,22 @@ import (
 
 // MicroserviceConfigurationSpec defines the desired state of MicroserviceConfiguration
 type MicroserviceConfigurationSpec struct {
+	// Unique functional area of microservice.
+	FunctionalArea string `json:"functionalArea"`
+
+	// Docker image information for microservice runtime.
+	Image string `json:"image"`
+
 	// Instance configuration information.
 	Configuration EntityConfiguration `json:"configuration"`
 }
 
 // MicroserviceConfigurationStatus defines the observed state of MicroserviceConfiguration
 type MicroserviceConfigurationStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 }
 
 //+kubebuilder:object:root=true
-//+kubebuilder:resource:shortName=dcmc
+//+kubebuilder:resource:scope=Cluster,shortName=dcmc
 //+kubebuilder:subresource:status
 
 // MicroserviceConfiguration is the Schema for the microserviceconfigurations API

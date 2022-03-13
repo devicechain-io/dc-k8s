@@ -97,6 +97,10 @@ test: manifests generate fmt vet envtest ## Run tests.
 
 ##@ Build
 
+.PHONY: stripped
+stripped: generate fmt vet ## Build manager binary.
+	go build -ldflags '-s -w' -o bin/manager main.go
+
 .PHONY: build
 build: generate fmt vet ## Build manager binary.
 	go build -o bin/manager main.go

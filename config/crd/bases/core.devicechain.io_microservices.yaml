@@ -37,8 +37,12 @@ spec:
           spec:
             description: MicroserviceSpec defines the desired state of Microservice
             properties:
-              defaultConfiguration:
-                description: Tenant configuration information.
+              configId:
+                description: Id of the microservice configuration resource used to
+                  load config.
+                type: string
+              configuration:
+                description: Microservice configuration information.
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               description:
@@ -57,7 +61,8 @@ spec:
                 description: Human-readable name displayed for tenant.
                 type: string
             required:
-            - defaultConfiguration
+            - configId
+            - configuration
             - description
             - functionalArea
             - image

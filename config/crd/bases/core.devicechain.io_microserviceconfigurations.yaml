@@ -15,7 +15,7 @@ spec:
     shortNames:
     - dcmc
     singular: microserviceconfiguration
-  scope: Namespaced
+  scope: Cluster
   versions:
   - name: v1beta1
     schema:
@@ -43,8 +43,16 @@ spec:
                 description: Instance configuration information.
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
+              functionalArea:
+                description: Unique functional area of microservice.
+                type: string
+              image:
+                description: Docker image information for microservice runtime.
+                type: string
             required:
             - configuration
+            - functionalArea
+            - image
             type: object
           status:
             description: MicroserviceConfigurationStatus defines the observed state
