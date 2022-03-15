@@ -42,8 +42,16 @@ spec:
                 description: Tenant-specific microservice configuration.
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
+              microserviceId:
+                description: Microservice id
+                type: string
+              tenantId:
+                description: Tenant id
+                type: string
             required:
             - configuration
+            - microserviceId
+            - tenantId
             type: object
           status:
             description: TenantMicroserviceStatus defines the observed state of TenantMicroservice

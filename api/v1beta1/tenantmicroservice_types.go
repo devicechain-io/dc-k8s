@@ -12,6 +12,12 @@ import (
 
 // TenantMicroserviceSpec defines the desired state of TenantMicroservice
 type TenantMicroserviceSpec struct {
+	// Microservice id
+	MicroserviceId string `json:"microserviceId"`
+
+	// Tenant id
+	TenantId string `json:"tenantId"`
+
 	// Tenant-specific microservice configuration.
 	Configuration EntityConfiguration `json:"configuration"`
 }
