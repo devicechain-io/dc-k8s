@@ -33,35 +33,42 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	log.Printf("Tenant reconcile for ctx: %v request: %v", ctx, req)
-	if tenant != nil {
-		tmslist, err := v1beta1.GetTenantMicroservicesForTenant(v1beta1.TenantMicroserviceByTenantRequest{
-			InstanceId: tenant.GetObjectMeta().GetNamespace(),
-			TenantId:   tenant.GetObjectMeta().GetName()})
-		if err != nil {
-			return ctrl.Result{}, err
-		}
+	// Just in case tenant not found
+	if tenant == nil {
+		log.Printf("Tenant was nil on reconciler lookup: %v\n", req)
+		return ctrl.Result{}, err
+	}
 
-		tmsbymsid := map[string]v1beta1.TenantMicroservice{}
-		for _, tms := range tmslist.Items {
-			tmsbymsid[tms.Spec.MicroserviceId] = tms
-		}
-		log.Printf("Found tms by id: %v\n", tmsbymsid)
+	// List tenant microservices with the given tenant label
+	tmslist, err := v1beta1.GetTenantMicroservicesForTenant(v1beta1.TenantMicroserviceByTenantRequest{
+		InstanceId: tenant.GetObjectMeta().GetNamespace(),
+		TenantId:   tenant.GetObjectMeta().GetName()})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
-		mslist, err := v1beta1.ListMicroservices(v1beta1.MicroserviceListRequest{
-			InstanceId: tenant.GetObjectMeta().GetNamespace(),
-		})
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		for _, ms := range mslist.Items {
-			if _, present := tmsbymsid[ms.ObjectMeta.Name]; !present {
-				tms, err := addTenantMicroservice(tenant, ms)
-				if err != nil {
-					return ctrl.Result{}, err
-				}
-				log.Printf("Created tenant microservice: %v", tms)
+	// Index all tenant microservices by microservice id
+	tmsbymsid := map[string]v1beta1.TenantMicroservice{}
+	for _, tms := range tmslist.Items {
+		tmsbymsid[tms.Spec.MicroserviceId] = tms
+	}
+	log.Printf("Found tms by id: %v\n", tmsbymsid)
+
+	// List all microservices and loop through attempting to
+	// verify there is a corresponding tenant microservice
+	mslist, err := v1beta1.ListMicroservices(v1beta1.MicroserviceListRequest{
+		InstanceId: tenant.GetObjectMeta().GetNamespace(),
+	})
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	for _, ms := range mslist.Items {
+		if _, present := tmsbymsid[ms.ObjectMeta.Name]; !present {
+			tms, err := addTenantMicroservice(tenant, ms)
+			if err != nil {
+				return ctrl.Result{}, err
 			}
+			log.Printf("Created tenant microservice: %v", tms)
 		}
 	}
 
