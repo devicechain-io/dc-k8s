@@ -110,19 +110,11 @@ func GetInstance(request InstanceGetRequest) (*Instance, error) {
 
 // Create a new DeviceChain tenant CR.
 func CreateTenant(request TenantCreateRequest) (*Tenant, error) {
-	if request.InstanceId == "" {
-		return nil, errors.New("instance id must be provided when creating tenant")
-	}
-	instance, err := GetInstance(InstanceGetRequest{Id: request.InstanceId})
-	if err != nil {
-		return nil, err
-	}
-
 	// Create tenant in instance namespace
 	tenant := &Tenant{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      request.TenantId,
-			Namespace: instance.GetObjectMeta().GetName(),
+			Namespace: request.InstanceId,
 		},
 		Spec: TenantSpec{
 			Name:        request.Name,
@@ -131,7 +123,7 @@ func CreateTenant(request TenantCreateRequest) (*Tenant, error) {
 	}
 
 	// Attempt to create the tenant.
-	err = V1Beta1Client.Create(context.Background(), tenant)
+	err := V1Beta1Client.Create(context.Background(), tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +131,7 @@ func CreateTenant(request TenantCreateRequest) (*Tenant, error) {
 	// Attempt to get the created tenant.
 	err = V1Beta1Client.Get(context.Background(), client.ObjectKey{
 		Name:      request.TenantId,
-		Namespace: instance.GetObjectMeta().GetName(),
+		Namespace: request.InstanceId,
 	}, tenant)
 	if err != nil {
 		return nil, err
@@ -149,18 +141,10 @@ func CreateTenant(request TenantCreateRequest) (*Tenant, error) {
 
 // Get a tenant based on request criteria
 func GetTenant(request TenantGetRequest) (*Tenant, error) {
-	if request.InstanceId == "" {
-		return nil, errors.New("instance id must be provided")
-	}
-	instance, err := GetInstance(InstanceGetRequest{Id: request.InstanceId})
-	if err != nil {
-		return nil, err
-	}
-
 	tenant := &Tenant{}
-	err = V1Beta1Client.Get(context.Background(), client.ObjectKey{
+	err := V1Beta1Client.Get(context.Background(), client.ObjectKey{
 		Name:      request.TenantId,
-		Namespace: instance.GetObjectMeta().GetName(),
+		Namespace: request.InstanceId,
 	}, tenant)
 	if err != nil {
 		return nil, err
@@ -182,14 +166,6 @@ func GetMicroserviceConfiguration(request MicroserviceConfigurationGetRequest) (
 
 // Create a new DeviceChain microservice CR.
 func CreateMicroservice(request MicroserviceCreateRequest) (*Microservice, error) {
-	if request.InstanceId == "" {
-		return nil, errors.New("instance id must be provided when creating microservice")
-	}
-	instance, err := GetInstance(InstanceGetRequest{Id: request.InstanceId})
-	if err != nil {
-		return nil, err
-	}
-
 	if request.ConfigurationId == "" {
 		return nil, errors.New("configuration id must be provided when creating microservice")
 	}
@@ -202,7 +178,7 @@ func CreateMicroservice(request MicroserviceCreateRequest) (*Microservice, error
 	ms := &Microservice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      request.Id,
-			Namespace: instance.GetObjectMeta().GetName(),
+			Namespace: request.InstanceId,
 		},
 		Spec: MicroserviceSpec{
 			Name:            request.Name,
@@ -224,7 +200,7 @@ func CreateMicroservice(request MicroserviceCreateRequest) (*Microservice, error
 	// Attempt to get the created microservice.
 	err = V1Beta1Client.Get(context.Background(), client.ObjectKey{
 		Name:      request.Id,
-		Namespace: instance.GetObjectMeta().GetName(),
+		Namespace: request.InstanceId,
 	}, ms)
 	if err != nil {
 		return nil, err
@@ -234,18 +210,10 @@ func CreateMicroservice(request MicroserviceCreateRequest) (*Microservice, error
 
 // Get a microservice based on request criteria
 func GetMicroservice(request MicroserviceGetRequest) (*Microservice, error) {
-	if request.InstanceId == "" {
-		return nil, errors.New("instance id must be provided")
-	}
-	instance, err := GetInstance(InstanceGetRequest{Id: request.InstanceId})
-	if err != nil {
-		return nil, err
-	}
-
 	ms := &Microservice{}
-	err = V1Beta1Client.Get(context.Background(), client.ObjectKey{
+	err := V1Beta1Client.Get(context.Background(), client.ObjectKey{
 		Name:      request.MicroserviceId,
-		Namespace: instance.GetObjectMeta().GetName(),
+		Namespace: request.InstanceId,
 	}, ms)
 	if err != nil {
 		return nil, err
@@ -255,16 +223,8 @@ func GetMicroservice(request MicroserviceGetRequest) (*Microservice, error) {
 
 // List microservices that match the given criteria
 func ListMicroservices(request MicroserviceListRequest) (*MicroserviceList, error) {
-	if request.InstanceId == "" {
-		return nil, errors.New("instance id must be provided")
-	}
-	instance, err := GetInstance(InstanceGetRequest{Id: request.InstanceId})
-	if err != nil {
-		return nil, err
-	}
-
 	mslist := &MicroserviceList{}
-	err = V1Beta1Client.List(context.Background(), mslist, client.InNamespace(instance.GetObjectMeta().GetName()))
+	err := V1Beta1Client.List(context.Background(), mslist, client.InNamespace(request.InstanceId))
 	if err != nil {
 		return nil, err
 	}
@@ -273,19 +233,11 @@ func ListMicroservices(request MicroserviceListRequest) (*MicroserviceList, erro
 
 // Create a new tenant microservice CR.
 func CreateTenantMicroservice(request TenantMicroserviceCreateRequest) (*TenantMicroservice, error) {
-	if request.InstanceId == "" {
-		return nil, errors.New("instance id must be provided")
-	}
-	instance, err := GetInstance(InstanceGetRequest{Id: request.InstanceId})
-	if err != nil {
-		return nil, err
-	}
-
 	if request.TenantId == "" {
 		return nil, errors.New("tenant id must be provided when creating tenant microservice")
 	}
 	tenant, err := GetTenant(TenantGetRequest{
-		InstanceId: instance.GetObjectMeta().GetName(),
+		InstanceId: request.InstanceId,
 		TenantId:   request.TenantId})
 	if err != nil {
 		return nil, err
@@ -295,7 +247,7 @@ func CreateTenantMicroservice(request TenantMicroserviceCreateRequest) (*TenantM
 		return nil, errors.New("microservice id must be provided when creating tenant microservice")
 	}
 	ms, err := GetMicroservice(MicroserviceGetRequest{
-		InstanceId:     instance.GetObjectMeta().GetName(),
+		InstanceId:     request.InstanceId,
 		MicroserviceId: request.MicroserviceId})
 	if err != nil {
 		return nil, err
@@ -338,18 +290,10 @@ func CreateTenantMicroservice(request TenantMicroserviceCreateRequest) (*TenantM
 
 // Get a tenant microservice based on request criteria
 func GetTenantMicroservice(request TenantMicroserviceGetRequest) (*TenantMicroservice, error) {
-	if request.InstanceId == "" {
-		return nil, errors.New("instance id must be provided")
-	}
-	instance, err := GetInstance(InstanceGetRequest{Id: request.InstanceId})
-	if err != nil {
-		return nil, err
-	}
-
 	tms := &TenantMicroservice{}
-	err = V1Beta1Client.Get(context.Background(), client.ObjectKey{
+	err := V1Beta1Client.Get(context.Background(), client.ObjectKey{
 		Name:      request.TenantMicroserviceId,
-		Namespace: instance.GetObjectMeta().GetName(),
+		Namespace: request.InstanceId,
 	}, tms)
 	if err != nil {
 		return nil, err
@@ -359,30 +303,35 @@ func GetTenantMicroservice(request TenantMicroserviceGetRequest) (*TenantMicrose
 
 // Get a tenant microservice based on request criteria
 func GetTenantMicroservicesForTenant(request TenantMicroserviceByTenantRequest) (*TenantMicroserviceList, error) {
-	if request.InstanceId == "" {
-		return nil, errors.New("instance id must be provided")
-	}
-	instance, err := GetInstance(InstanceGetRequest{Id: request.InstanceId})
-	if err != nil {
-		return nil, err
-	}
-
-	// Verify tenant exists
-	_, err = GetTenant(TenantGetRequest{
-		InstanceId: instance.GetObjectMeta().GetName(),
-		TenantId:   request.TenantId})
-	if err != nil {
-		return nil, err
-	}
-
 	// List tenant microservices in instance namespace with tenant label
 	tmslist := &TenantMicroserviceList{}
-	err = V1Beta1Client.List(context.Background(), tmslist, client.InNamespace(instance.GetObjectMeta().GetName()),
+	err := V1Beta1Client.List(context.Background(), tmslist, client.InNamespace(request.InstanceId),
 		client.MatchingLabels{LABEL_TENANT: request.TenantId})
 	if err != nil {
 		return nil, err
 	}
 	return tmslist, nil
+}
+
+// Delete a tenant microservice based on request criteria
+func DeleteTenantMicroservice(request TenantMicroserviceDeleteRequest) (*TenantMicroservice, error) {
+	// Look up the existing tenant microservice
+	tms := &TenantMicroservice{}
+	err := V1Beta1Client.Get(context.Background(), client.ObjectKey{
+		Name:      request.TenantMicroserviceId,
+		Namespace: request.InstanceId,
+	}, tms)
+	if err != nil {
+		return nil, err
+	}
+
+	// Delete the tenant microservice
+	err = V1Beta1Client.Delete(context.Background(), tms)
+	if err != nil {
+		return nil, err
+	}
+
+	return tms, nil
 }
 
 func init() {

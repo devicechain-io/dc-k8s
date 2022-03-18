@@ -92,3 +92,9 @@ type TenantMicroserviceByTenantRequest struct {
 	InstanceId string
 	TenantId   string
 }
+
+// Information required to delete a tenant microservice.
+type TenantMicroserviceDeleteRequest struct {
+	InstanceId           string
+	TenantMicroserviceId string
+}
