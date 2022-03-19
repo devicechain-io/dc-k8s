@@ -8,13 +8,18 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	corev1beta1 "github.com/devicechain-io/dc-k8s/api/v1beta1"
+	"github.com/devicechain-io/dc-k8s/api/v1beta1"
 )
 
 // TenantMicroserviceReconciler reconciles a TenantMicroservice object
@@ -26,20 +31,27 @@ type TenantMicroserviceReconciler struct {
 //+kubebuilder:rbac:groups=core.devicechain.io,resources=tenantmicroservices,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core.devicechain.io,resources=tenantmicroservices/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=core.devicechain.io,resources=tenantmicroservices/finalizers,verbs=update
-
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the TenantMicroservice object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
 func (r *TenantMicroserviceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	tms := &v1beta1.TenantMicroservice{}
+	err := r.Get(ctx, req.NamespacedName, tms)
+	if err != nil {
+		log.Info(fmt.Sprintf("Handling deleted tenant microservice: %+v", req.NamespacedName))
+		err := r.handleTenantMicroserviceDeleted(ctx, req)
+		if err != nil {
+			log.Error(err, "Unable to handle tenant microservice delete")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// Handle creating or updating a k8s Deployment for the tenant microservice
+	log.Info(fmt.Sprintf("Handling added/updated tenant microservice: %+v", req.NamespacedName))
+	err = r.createOrUpdateDeployment(ctx, tms)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -47,6 +59,106 @@ func (r *TenantMicroserviceReconciler) Reconcile(ctx context.Context, req ctrl.R
 // SetupWithManager sets up the controller with the Manager.
 func (r *TenantMicroserviceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&corev1beta1.TenantMicroservice{}).
+		For(&v1beta1.TenantMicroservice{}).
 		Complete(r)
+}
+
+// Get namespaced name for deployment
+func getDeploymentName(tms *v1beta1.TenantMicroservice) types.NamespacedName {
+	return types.NamespacedName{Namespace: tms.ObjectMeta.Namespace, Name: tms.ObjectMeta.Name}
+}
+
+// Create or update a k8s Deployment for the tenant microservice
+func (r *TenantMicroserviceReconciler) createOrUpdateDeployment(ctx context.Context, tms *v1beta1.TenantMicroservice) error {
+	log := logf.FromContext(ctx)
+
+	// Attempt to look up existing deployment.
+	dname := getDeploymentName(tms)
+	deploy := &appsv1.Deployment{}
+	err := r.Get(ctx, dname, deploy)
+	if err != nil {
+		log.Info(fmt.Sprintf("Existing deployment not found for tenant microservice: %+v", dname))
+
+		// Look up associated microservice.
+		ms, err := v1beta1.GetMicroservice(v1beta1.MicroserviceGetRequest{
+			InstanceId:     tms.ObjectMeta.Namespace,
+			MicroserviceId: tms.Spec.MicroserviceId,
+		})
+		if err != nil {
+			return err
+		}
+
+		// Create a new deployment.
+		_, err = r.createDeployment(ctx, tms, ms)
+		return err
+	}
+
+	log.Info(fmt.Sprintf("Existing deployment found for tenant microservice: %+v", dname))
+
+	return nil
+}
+
+// Create labels to target deployment
+func createDeploymentLabels(tms *v1beta1.TenantMicroservice) map[string]string {
+	return map[string]string{
+		v1beta1.LABEL_TENANT:       tms.Spec.TenantId,
+		v1beta1.LABEL_MICROSERVICE: tms.Spec.MicroserviceId,
+	}
+}
+
+// Create a deployment based on tenant microservice details
+func (r *TenantMicroserviceReconciler) createDeployment(ctx context.Context, tms *v1beta1.TenantMicroservice,
+	ms *v1beta1.Microservice) (*appsv1.Deployment, error) {
+	log := logf.FromContext(ctx)
+
+	dname := getDeploymentName(tms)
+	labels := createDeploymentLabels(tms)
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      dname.Name,
+			Namespace: dname.Namespace,
+			Labels:    labels,
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:            tms.Spec.MicroserviceId,
+							Image:           ms.Spec.Image,
+							ImagePullPolicy: ms.Spec.ImagePullPolicy,
+						},
+					},
+				},
+			},
+		},
+	}
+	err := r.Create(context.Background(), deploy)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Info(fmt.Sprintf("Created k8s Deployment for tenant microservice: %+v", dname))
+	return deploy, nil
+}
+
+// Handle a deleted tenant microservice
+func (r *TenantMicroserviceReconciler) handleTenantMicroserviceDeleted(ctx context.Context, req ctrl.Request) error {
+	log := logf.FromContext(ctx)
+
+	deploy := &appsv1.Deployment{}
+	err := r.Get(ctx, req.NamespacedName, deploy)
+	if err != nil {
+		log.Info(fmt.Sprintf("Unable to find deployment for tenant microservice: %+v", req.NamespacedName))
+		return err
+	}
+	err = r.Delete(ctx, deploy)
+	log.Info(fmt.Sprintf("Deleted deployment for tenant microservice: %+v", req.NamespacedName))
+	return err
 }

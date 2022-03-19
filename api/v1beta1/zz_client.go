@@ -185,7 +185,7 @@ func CreateMicroservice(request MicroserviceCreateRequest) (*Microservice, error
 			Description:     request.Description,
 			FunctionalArea:  msc.Spec.FunctionalArea,
 			Image:           msc.Spec.Image,
-			ImagePullPolicy: v1.PullAlways,
+			ImagePullPolicy: v1.PullIfNotPresent,
 			ConfigurationId: request.ConfigurationId,
 			Configuration:   EntityConfiguration{RawMessage: msc.Spec.Configuration.RawMessage},
 		},
