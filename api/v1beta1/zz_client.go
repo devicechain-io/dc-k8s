@@ -14,6 +14,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	runtime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,29 +29,11 @@ const (
 var (
 	ClientConfig  *rest.Config
 	V1Beta1Client client.Client
+	V1Client      client.Client
 )
 
-// Initialize client configuration
-func initClientConfig() {
-	ClientConfig = config.GetConfigOrDie()
-	ClientConfig.RateLimiter = flowcontrol.NewFakeAlwaysRateLimiter()
-}
-
-// Initialize client for DeviceChain operations
-func initV1Beta1Client() error {
-	v1beta1, err := SchemeBuilder.Build()
-	if err != nil {
-		return err
-	}
-	V1Beta1Client, err = client.New(ClientConfig, client.Options{Scheme: v1beta1})
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 // Get instance configuraion by id
-func getInstanceConfiguration(id string) (*InstanceConfiguration, error) {
+func GetInstanceConfiguration(id string) (*InstanceConfiguration, error) {
 	ic := &InstanceConfiguration{}
 	err := V1Beta1Client.Get(context.Background(), client.ObjectKey{
 		Name: id,
@@ -63,7 +46,7 @@ func getInstanceConfiguration(id string) (*InstanceConfiguration, error) {
 
 // Create a new DeviceChain instance CR.
 func CreateInstance(request InstanceCreateRequest) (*Instance, error) {
-	ic, err := getInstanceConfiguration(request.ConfigurationId)
+	ic, err := GetInstanceConfiguration(request.ConfigurationId)
 	if err != nil {
 		return nil, err
 	}
@@ -334,10 +317,48 @@ func DeleteTenantMicroservice(request TenantMicroserviceDeleteRequest) (*TenantM
 	return tms, nil
 }
 
+// Initialize client configuration
+func initClientConfig() {
+	ClientConfig = config.GetConfigOrDie()
+	ClientConfig.RateLimiter = flowcontrol.NewFakeAlwaysRateLimiter()
+}
+
+// Initialize client for DeviceChain operations
+func initV1Beta1Client() error {
+	v1beta1, err := SchemeBuilder.Build()
+	if err != nil {
+		return err
+	}
+	V1Beta1Client, err = client.New(ClientConfig, client.Options{Scheme: v1beta1})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Init client for interacting with v1 objects
+func initV1Client() error {
+	scheme := runtime.NewScheme()
+	err := v1.SchemeBuilder.AddToScheme(scheme)
+	if err != nil {
+		return err
+	}
+
+	V1Client, err = client.New(ClientConfig, client.Options{Scheme: scheme})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func init() {
 	initClientConfig()
 	err := initV1Beta1Client()
 	if err != nil {
 		log.Fatal("unable to initialize v1beta1 client", err)
+	}
+	err = initV1Client()
+	if err != nil {
+		log.Println("unable to initialize v1 client", err)
 	}
 }

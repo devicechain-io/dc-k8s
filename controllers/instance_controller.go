@@ -8,19 +8,20 @@ package controllers
 
 import (
 	"context"
-	"log"
+	"fmt"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	corev1beta1 "github.com/devicechain-io/dc-k8s/api/v1beta1"
 )
 
-var (
-	V1Client client.Client
+const (
+	INSTANCE_CONFIG_NAME = "instance"
 )
 
 // InstanceReconciler reconciles a Instance object
@@ -43,6 +44,8 @@ type InstanceReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.11.0/pkg/reconcile
 func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+
 	instance := &corev1beta1.Instance{}
 	err := r.Get(ctx, req.NamespacedName, instance)
 	if err != nil {
@@ -53,11 +56,21 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	instanceid := instance.ObjectMeta.Name
 	_, err = getNamespace(instanceid)
 	if err != nil {
-		log.Printf("Instance namespace not found. Creating namespace '%s'", instanceid)
+		log.Info(fmt.Sprintf("Instance namespace not found. Creating namespace '%s'", instanceid))
 		_, err = createNamespace(instanceid)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
+	}
+
+	// Locate instance config map and create if not existing
+	_, err = getInstanceConfigMap(instance)
+	if err != nil {
+		cmap, err := createInstanceConfigMap(instance)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		log.Info(fmt.Sprintf("Created instance config map '%s'", cmap.ObjectMeta.Name))
 	}
 
 	return ctrl.Result{}, nil
@@ -70,27 +83,12 @@ func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// Init client for interacting with v1 objects
-func initV1Client() error {
-	scheme := runtime.NewScheme()
-	err := v1.SchemeBuilder.AddToScheme(scheme)
-	if err != nil {
-		return err
-	}
-
-	V1Client, err = client.New(corev1beta1.ClientConfig, client.Options{Scheme: scheme})
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 // Create a new namespace
 func createNamespace(nsid string) (*v1.Namespace, error) {
 	ns := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsid}}
 
 	// Attempt to create the namespace.
-	err := V1Client.Create(context.Background(), ns)
+	err := corev1beta1.V1Client.Create(context.Background(), ns)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +98,7 @@ func createNamespace(nsid string) (*v1.Namespace, error) {
 // Get namespace by id
 func getNamespace(nsid string) (*v1.Namespace, error) {
 	ns := &v1.Namespace{}
-	err := V1Client.Get(context.Background(), client.ObjectKey{
+	err := corev1beta1.V1Client.Get(context.Background(), client.ObjectKey{
 		Name: nsid,
 	}, ns)
 	if err != nil {
@@ -109,9 +107,45 @@ func getNamespace(nsid string) (*v1.Namespace, error) {
 	return ns, nil
 }
 
-func init() {
-	err := initV1Client()
+// Get name of instance config map
+func getInstanceConfigMapName(dci *corev1beta1.Instance) string {
+	return fmt.Sprintf("%s-%s-%s", "dci", dci.ObjectMeta.Name, "config")
+}
+
+// Create a new namespace
+func createInstanceConfigMap(dci *corev1beta1.Instance) (*v1.ConfigMap, error) {
+	ic, err := corev1beta1.GetInstanceConfiguration(dci.Spec.ConfigurationId)
 	if err != nil {
-		log.Println("unable to initialize v1 client", err)
+		return nil, err
 	}
+
+	cmap := &v1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      getInstanceConfigMapName(dci),
+			Namespace: dci.ObjectMeta.Name,
+		},
+		Data: map[string]string{
+			INSTANCE_CONFIG_NAME: string(ic.Spec.Configuration.RawMessage),
+		},
+	}
+
+	// Attempt to create the namespace.
+	err = corev1beta1.V1Client.Create(context.Background(), cmap)
+	if err != nil {
+		return nil, err
+	}
+	return cmap, nil
+}
+
+// Get config map associated with instance
+func getInstanceConfigMap(dci *corev1beta1.Instance) (*v1.ConfigMap, error) {
+	cmap := &v1.ConfigMap{}
+	err := corev1beta1.V1Client.Get(context.Background(), client.ObjectKey{
+		Name:      getInstanceConfigMapName(dci),
+		Namespace: dci.ObjectMeta.Name,
+	}, cmap)
+	if err != nil {
+		return nil, err
+	}
+	return cmap, nil
 }

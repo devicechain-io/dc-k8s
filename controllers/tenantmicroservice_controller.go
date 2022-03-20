@@ -111,6 +111,11 @@ func (r *TenantMicroserviceReconciler) createDeployment(ctx context.Context, tms
 	ms *v1beta1.Microservice) (*appsv1.Deployment, error) {
 	log := logf.FromContext(ctx)
 
+	dci, err := v1beta1.GetInstance(v1beta1.InstanceGetRequest{Id: tms.ObjectMeta.Namespace})
+	if err != nil {
+		return nil, err
+	}
+
 	dname := getDeploymentName(tms)
 	labels := createDeploymentLabels(tms)
 	deploy := &appsv1.Deployment{
@@ -133,13 +138,31 @@ func (r *TenantMicroserviceReconciler) createDeployment(ctx context.Context, tms
 							Name:            tms.Spec.MicroserviceId,
 							Image:           ms.Spec.Image,
 							ImagePullPolicy: ms.Spec.ImagePullPolicy,
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "instance-config",
+									MountPath: "/etc/dc-config",
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "instance-config",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: getInstanceConfigMapName(dci),
+									},
+								},
+							},
 						},
 					},
 				},
 			},
 		},
 	}
-	err := r.Create(context.Background(), deploy)
+	err = r.Create(context.Background(), deploy)
 	if err != nil {
 		return nil, err
 	}
