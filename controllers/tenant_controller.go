@@ -12,6 +12,8 @@ import (
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -56,12 +58,23 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
+	// Add tenant microservice for those that were missing.
 	for _, ms := range missing {
 		tms, err := handleMissingTenantMicroservice(tenant, ms)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 		log.Info(fmt.Sprintf("Added missing tenant microservice (%s/%s)", tms.Spec.TenantId, tms.Spec.MicroserviceId))
+	}
+
+	// Create tenant config map if not found
+	_, err = getTenantConfigMap(tenant.ObjectMeta.Name, tenant.ObjectMeta.Namespace)
+	if err != nil {
+		cmap, err := createTenantConfigMap(tenant.ObjectMeta.Name, tenant.ObjectMeta.Namespace)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		log.Info(fmt.Sprintf("Created tenant config map '%s'", cmap.ObjectMeta.Name))
 	}
 
 	return ctrl.Result{}, nil
@@ -148,5 +161,58 @@ func handleTenantDeleted(ctx context.Context, req ctrl.Request) error {
 		log.Info(fmt.Sprintf("Deleted tenant microservice '%s' due to tenant delete.", tms.ObjectMeta.Name))
 	}
 
-	return nil
+	// Delete config map associated with tenant
+	cmap, err := deleteTenantConfigMap(req.Name, req.Namespace)
+	log.Info(fmt.Sprintf("Deleted tenant config map '%s'.", cmap.ObjectMeta.Name))
+	return err
+}
+
+// Get name of tenant config map
+func getTenantConfigMapName(tid string) string {
+	return fmt.Sprintf("%s-%s-%s", "dct", tid, "config")
+}
+
+// Create a new tenant config map
+func createTenantConfigMap(tid string, ns string) (*v1.ConfigMap, error) {
+	cmap := &v1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      getTenantConfigMapName(tid),
+			Namespace: ns,
+		},
+		Data: map[string]string{},
+	}
+
+	// Attempt to create the namespace.
+	err := v1beta1.V1Client.Create(context.Background(), cmap)
+	if err != nil {
+		return nil, err
+	}
+	return cmap, nil
+}
+
+// Get config map associated with tenant
+func getTenantConfigMap(tid string, ns string) (*v1.ConfigMap, error) {
+	cmap := &v1.ConfigMap{}
+	err := v1beta1.V1Client.Get(context.Background(), client.ObjectKey{
+		Name:      getTenantConfigMapName(tid),
+		Namespace: ns,
+	}, cmap)
+	if err != nil {
+		return nil, err
+	}
+	return cmap, nil
+}
+
+// Delete config map associated with tenant
+func deleteTenantConfigMap(tid string, ns string) (*v1.ConfigMap, error) {
+	cmap, err := getTenantConfigMap(tid, ns)
+	if err != nil {
+		return nil, err
+	}
+
+	err = v1beta1.V1Client.Delete(context.Background(), cmap)
+	if err != nil {
+		return nil, err
+	}
+	return cmap, nil
 }

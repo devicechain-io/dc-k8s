@@ -41,10 +41,6 @@ spec:
                 description: Id of the microservice configuration resource used to
                   load config.
                 type: string
-              configuration:
-                description: Microservice configuration information.
-                type: object
-                x-kubernetes-preserve-unknown-fields: true
               description:
                 description: Human-readable description displayed for tenant.
                 type: string
@@ -62,7 +58,6 @@ spec:
                 type: string
             required:
             - configId
-            - configuration
             - description
             - functionalArea
             - image

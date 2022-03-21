@@ -22,6 +22,14 @@ import (
 	"github.com/devicechain-io/dc-k8s/api/v1beta1"
 )
 
+const (
+	ENV_TENANT_ID          = "DC_TENANT_ID"
+	ENV_TENANT_NAME        = "DC_TENANT_NAME"
+	ENV_MICROSERVICE_ID    = "DC_MICROSERVICE_ID"
+	ENV_MICROSERVICE_NAME  = "DC_MICROSERVICE_NAME"
+	ENV_MS_FUNCTIONAL_AREA = "DC_MS_FUNCTIONAL_AREA"
+)
+
 // TenantMicroserviceReconciler reconciles a TenantMicroservice object
 type TenantMicroserviceReconciler struct {
 	client.Client
@@ -53,6 +61,12 @@ func (r *TenantMicroserviceReconciler) Reconcile(ctx context.Context, req ctrl.R
 		return ctrl.Result{}, err
 	}
 
+	// Update tenant config map entry with configuration
+	err = r.updateTenantConfigMap(ctx, tms)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -80,6 +94,15 @@ func (r *TenantMicroserviceReconciler) createOrUpdateDeployment(ctx context.Cont
 		log.Info(fmt.Sprintf("Existing deployment not found for tenant microservice: %+v", dname))
 
 		// Look up associated microservice.
+		dct, err := v1beta1.GetTenant(v1beta1.TenantGetRequest{
+			InstanceId: tms.ObjectMeta.Namespace,
+			TenantId:   tms.Spec.TenantId,
+		})
+		if err != nil {
+			return err
+		}
+
+		// Look up associated microservice.
 		ms, err := v1beta1.GetMicroservice(v1beta1.MicroserviceGetRequest{
 			InstanceId:     tms.ObjectMeta.Namespace,
 			MicroserviceId: tms.Spec.MicroserviceId,
@@ -89,7 +112,7 @@ func (r *TenantMicroserviceReconciler) createOrUpdateDeployment(ctx context.Cont
 		}
 
 		// Create a new deployment.
-		_, err = r.createDeployment(ctx, tms, ms)
+		_, err = r.createDeployment(ctx, tms, dct, ms)
 		return err
 	}
 
@@ -108,7 +131,7 @@ func createDeploymentLabels(tms *v1beta1.TenantMicroservice) map[string]string {
 
 // Create a deployment based on tenant microservice details
 func (r *TenantMicroserviceReconciler) createDeployment(ctx context.Context, tms *v1beta1.TenantMicroservice,
-	ms *v1beta1.Microservice) (*appsv1.Deployment, error) {
+	dct *v1beta1.Tenant, ms *v1beta1.Microservice) (*appsv1.Deployment, error) {
 	log := logf.FromContext(ctx)
 
 	dci, err := v1beta1.GetInstance(v1beta1.InstanceGetRequest{Id: tms.ObjectMeta.Namespace})
@@ -138,10 +161,35 @@ func (r *TenantMicroserviceReconciler) createDeployment(ctx context.Context, tms
 							Name:            tms.Spec.MicroserviceId,
 							Image:           ms.Spec.Image,
 							ImagePullPolicy: ms.Spec.ImagePullPolicy,
+							Env: []corev1.EnvVar{
+								{
+									Name:  ENV_TENANT_ID,
+									Value: dct.ObjectMeta.Name,
+								},
+								{
+									Name:  ENV_TENANT_NAME,
+									Value: dct.Spec.Name,
+								},
+								{
+									Name:  ENV_MICROSERVICE_ID,
+									Value: ms.ObjectMeta.Name,
+								},
+								{
+									Name:  ENV_MICROSERVICE_NAME,
+									Value: ms.Spec.Name,
+								},
+								{
+									Name:  ENV_MS_FUNCTIONAL_AREA,
+									Value: ms.Spec.FunctionalArea,
+								},
+							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      "instance-config",
-									MountPath: "/etc/dc-config",
+									MountPath: "/etc/dci-config",
+								}, {
+									Name:      "tenant-config",
+									MountPath: "/etc/dct-config",
 								},
 							},
 						},
@@ -153,6 +201,16 @@ func (r *TenantMicroserviceReconciler) createDeployment(ctx context.Context, tms
 								ConfigMap: &corev1.ConfigMapVolumeSource{
 									LocalObjectReference: corev1.LocalObjectReference{
 										Name: getInstanceConfigMapName(dci),
+									},
+								},
+							},
+						},
+						{
+							Name: "tenant-config",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: getTenantConfigMapName(tms.Spec.TenantId),
 									},
 								},
 							},
@@ -183,5 +241,34 @@ func (r *TenantMicroserviceReconciler) handleTenantMicroserviceDeleted(ctx conte
 	}
 	err = r.Delete(ctx, deploy)
 	log.Info(fmt.Sprintf("Deleted deployment for tenant microservice: %+v", req.NamespacedName))
+	return err
+}
+
+// Update tenant configuration map with entry for tenant microservice
+func (r *TenantMicroserviceReconciler) updateTenantConfigMap(ctx context.Context,
+	tms *v1beta1.TenantMicroservice) error {
+
+	// Get microservice information.
+	ms, err := v1beta1.GetMicroservice(v1beta1.MicroserviceGetRequest{
+		InstanceId:     tms.ObjectMeta.Namespace,
+		MicroserviceId: tms.Spec.MicroserviceId,
+	})
+	if err != nil {
+		return err
+	}
+
+	tcmap, err := getTenantConfigMap(tms.Spec.TenantId, tms.ObjectMeta.Namespace)
+	if err != nil {
+		return err
+	}
+
+	// Make sure map data is populated.
+	if tcmap.Data == nil {
+		tcmap.Data = make(map[string]string, 0)
+	}
+
+	// Update map index for functional area
+	tcmap.Data[ms.Spec.FunctionalArea] = string(tms.Spec.Configuration.RawMessage)
+	err = r.Update(ctx, tcmap)
 	return err
 }

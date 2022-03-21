@@ -170,7 +170,6 @@ func CreateMicroservice(request MicroserviceCreateRequest) (*Microservice, error
 			Image:           msc.Spec.Image,
 			ImagePullPolicy: v1.PullIfNotPresent,
 			ConfigurationId: request.ConfigurationId,
-			Configuration:   EntityConfiguration{RawMessage: msc.Spec.Configuration.RawMessage},
 		},
 	}
 
@@ -236,6 +235,13 @@ func CreateTenantMicroservice(request TenantMicroserviceCreateRequest) (*TenantM
 		return nil, err
 	}
 
+	msc, err := GetMicroserviceConfiguration(MicroserviceConfigurationGetRequest{
+		Id: ms.Spec.ConfigurationId,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	// Create tenant ms in instance namespace
 	tmsid := fmt.Sprintf("%s-%s-%s", "tms", tenant.ObjectMeta.Name, ms.ObjectMeta.Name)
 	tms := &TenantMicroservice{
@@ -250,7 +256,7 @@ func CreateTenantMicroservice(request TenantMicroserviceCreateRequest) (*TenantM
 		Spec: TenantMicroserviceSpec{
 			MicroserviceId: request.MicroserviceId,
 			TenantId:       request.TenantId,
-			Configuration:  EntityConfiguration{RawMessage: ms.Spec.Configuration.RawMessage},
+			Configuration:  EntityConfiguration{RawMessage: msc.Spec.Configuration.RawMessage},
 		},
 	}
 

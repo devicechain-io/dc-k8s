@@ -30,9 +30,6 @@ type MicroserviceSpec struct {
 
 	// Id of the microservice configuration resource used to load config.
 	ConfigurationId string `json:"configId"`
-
-	// Microservice configuration information.
-	Configuration EntityConfiguration `json:"configuration"`
 }
 
 // MicroserviceStatus defines the observed state of Microservice

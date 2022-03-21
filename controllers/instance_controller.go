@@ -112,7 +112,7 @@ func getInstanceConfigMapName(dci *corev1beta1.Instance) string {
 	return fmt.Sprintf("%s-%s-%s", "dci", dci.ObjectMeta.Name, "config")
 }
 
-// Create a new namespace
+// Create a new instance config map
 func createInstanceConfigMap(dci *corev1beta1.Instance) (*v1.ConfigMap, error) {
 	ic, err := corev1beta1.GetInstanceConfiguration(dci.Spec.ConfigurationId)
 	if err != nil {
