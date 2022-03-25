@@ -32,6 +32,7 @@ rules:
 - apiGroups:
   - core.devicechain.io
   resources:
+  - clusters
   - instances
   - instanceconfigurations
   - microservices
@@ -49,6 +50,7 @@ rules:
 - apiGroups:
   - core.devicechain.io
   resources:
+  - clusters/finalizers
   - instances/finalizers
   - microservices/finalizers
   - tenants/finalizers
@@ -58,6 +60,7 @@ rules:
 - apiGroups:
   - core.devicechain.io
   resources:
+  - clusters/status
   - instances/status
   - microservices/status
   - tenants/status
