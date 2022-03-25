@@ -12,6 +12,8 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -45,18 +47,26 @@ func (r *TenantMicroserviceReconciler) Reconcile(ctx context.Context, req ctrl.R
 	tms := &v1beta1.TenantMicroservice{}
 	err := r.Get(ctx, req.NamespacedName, tms)
 	if err != nil {
-		log.Info(fmt.Sprintf("Handling deleted tenant microservice: %+v", req.NamespacedName))
-		err := r.handleTenantMicroserviceDeleted(ctx, req)
-		if err != nil {
-			log.Error(err, "Unable to handle tenant microservice delete")
-			return ctrl.Result{}, err
+		if errors.IsNotFound(err) {
+			log.Info(fmt.Sprintf("Handling deleted tenant microservice: %+v", req.NamespacedName))
+			if err := r.handleTenantMicroserviceDeleted(ctx, req); err != nil {
+				log.Error(err, "Unable to handle tenant microservice delete")
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, err
 	}
 
 	// Handle creating or updating a k8s Deployment for the tenant microservice
 	log.Info(fmt.Sprintf("Handling added/updated tenant microservice: %+v", req.NamespacedName))
 	err = r.createOrUpdateDeployment(ctx, tms)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	// Create or update instance ingress based on changes.
+	err = r.updateInstanceIngress(ctx, tms)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -89,31 +99,34 @@ func (r *TenantMicroserviceReconciler) createOrUpdateDeployment(ctx context.Cont
 	// Attempt to look up existing deployment.
 	dname := getDeploymentName(tms)
 	deploy := &appsv1.Deployment{}
-	err := r.Get(ctx, dname, deploy)
-	if err != nil {
-		log.Info(fmt.Sprintf("Existing deployment not found for tenant microservice: %+v", dname))
+	if err := r.Get(ctx, dname, deploy); err != nil {
+		if errors.IsNotFound(err) {
+			log.Info(fmt.Sprintf("Existing deployment not found for tenant microservice: %+v", dname))
 
-		// Look up associated microservice.
-		dct, err := v1beta1.GetTenant(v1beta1.TenantGetRequest{
-			InstanceId: tms.ObjectMeta.Namespace,
-			TenantId:   tms.Spec.TenantId,
-		})
-		if err != nil {
+			// Look up associated microservice.
+			dct, err := v1beta1.GetTenant(v1beta1.TenantGetRequest{
+				InstanceId: tms.ObjectMeta.Namespace,
+				TenantId:   tms.Spec.TenantId,
+			})
+			if err != nil {
+				return err
+			}
+
+			// Look up associated microservice.
+			ms, err := v1beta1.GetMicroservice(v1beta1.MicroserviceGetRequest{
+				InstanceId:     tms.ObjectMeta.Namespace,
+				MicroserviceId: tms.Spec.MicroserviceId,
+			})
+			if err != nil {
+				return err
+			}
+
+			// Create a new deployment.
+			_, err = r.createDeploymentAndService(ctx, tms, dct, ms)
+			return err
+		} else {
 			return err
 		}
-
-		// Look up associated microservice.
-		ms, err := v1beta1.GetMicroservice(v1beta1.MicroserviceGetRequest{
-			InstanceId:     tms.ObjectMeta.Namespace,
-			MicroserviceId: tms.Spec.MicroserviceId,
-		})
-		if err != nil {
-			return err
-		}
-
-		// Create a new deployment.
-		_, err = r.createDeployment(ctx, tms, dct, ms)
-		return err
 	}
 
 	log.Info(fmt.Sprintf("Existing deployment found for tenant microservice: %+v", dname))
@@ -130,7 +143,7 @@ func createDeploymentLabels(tms *v1beta1.TenantMicroservice) map[string]string {
 }
 
 // Create a deployment based on tenant microservice details
-func (r *TenantMicroserviceReconciler) createDeployment(ctx context.Context, tms *v1beta1.TenantMicroservice,
+func (r *TenantMicroserviceReconciler) createDeploymentAndService(ctx context.Context, tms *v1beta1.TenantMicroservice,
 	dct *v1beta1.Tenant, ms *v1beta1.Microservice) (*appsv1.Deployment, error) {
 	log := logf.FromContext(ctx)
 
@@ -141,6 +154,8 @@ func (r *TenantMicroserviceReconciler) createDeployment(ctx context.Context, tms
 
 	dname := getDeploymentName(tms)
 	labels := createDeploymentLabels(tms)
+
+	// Create deployment.
 	deploy := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      dname.Name,
@@ -225,6 +240,29 @@ func (r *TenantMicroserviceReconciler) createDeployment(ctx context.Context, tms
 		return nil, err
 	}
 
+	// Create service for accessing pods.
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      dname.Name,
+			Namespace: dname.Namespace,
+			Labels:    labels,
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name:     "graphql",
+					Protocol: corev1.ProtocolTCP,
+					Port:     8080,
+				},
+			},
+			Selector: labels,
+		},
+	}
+	err = r.Create(context.Background(), service)
+	if err != nil {
+		return nil, err
+	}
+
 	log.Info(fmt.Sprintf("Created k8s Deployment for tenant microservice: %+v", dname))
 	return deploy, nil
 }
@@ -234,14 +272,33 @@ func (r *TenantMicroserviceReconciler) handleTenantMicroserviceDeleted(ctx conte
 	log := logf.FromContext(ctx)
 
 	deploy := &appsv1.Deployment{}
-	err := r.Get(ctx, req.NamespacedName, deploy)
-	if err != nil {
-		log.Info(fmt.Sprintf("Unable to find deployment for tenant microservice: %+v", req.NamespacedName))
-		return err
+	if err := r.Get(ctx, req.NamespacedName, deploy); err != nil {
+		if !errors.IsNotFound(err) {
+			log.Info(fmt.Sprintf("Unable to find deployment for tenant microservice: %+v", req.NamespacedName))
+			return err
+		}
+	} else {
+		if err := r.Delete(ctx, deploy); err != nil {
+			log.Info(fmt.Sprintf("Unable to delete deployment for tenant microservice: %+v", req.NamespacedName))
+			return err
+		}
+		log.Info(fmt.Sprintf("Deleted deployment for tenant microservice: %+v", req.NamespacedName))
 	}
-	err = r.Delete(ctx, deploy)
-	log.Info(fmt.Sprintf("Deleted deployment for tenant microservice: %+v", req.NamespacedName))
-	return err
+
+	service := &corev1.Service{}
+	if err := r.Get(ctx, req.NamespacedName, service); err != nil {
+		if !errors.IsNotFound(err) {
+			log.Info(fmt.Sprintf("Unable to find service for tenant microservice: %+v", req.NamespacedName))
+			return err
+		}
+	} else {
+		if err := r.Delete(ctx, service); err != nil {
+			log.Info(fmt.Sprintf("Unable to delete service for tenant microservice: %+v", req.NamespacedName))
+			return err
+		}
+		log.Info(fmt.Sprintf("Deleted service for tenant microservice: %+v", req.NamespacedName))
+	}
+	return nil
 }
 
 // Update tenant configuration map with entry for tenant microservice
@@ -269,6 +326,116 @@ func (r *TenantMicroserviceReconciler) updateTenantConfigMap(ctx context.Context
 
 	// Update map index for functional area
 	tcmap.Data[ms.Spec.FunctionalArea] = string(tms.Spec.Configuration.RawMessage)
-	err = r.Update(ctx, tcmap)
-	return err
+	return r.Update(ctx, tcmap)
+}
+
+// Generate name used for instance ingress.
+func generateIngressName(ns string, tenantid string) types.NamespacedName {
+	return types.NamespacedName{
+		Namespace: ns,
+		Name:      fmt.Sprintf("%s-%s-%s", ns, tenantid, "ingress"),
+	}
+}
+
+// Generate the ingress path for a given tenant microservice.
+func generateIngressPath(tms *v1beta1.TenantMicroservice) (*netv1.HTTPIngressPath, error) {
+	ms, err := v1beta1.GetMicroservice(v1beta1.MicroserviceGetRequest{
+		InstanceId:     tms.ObjectMeta.Namespace,
+		MicroserviceId: tms.Spec.MicroserviceId,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	pathtype := netv1.PathTypePrefix
+	igpath := &netv1.HTTPIngressPath{
+		Path:     fmt.Sprintf("/%s/%s/%s(/|$)(.*)", tms.ObjectMeta.Namespace, tms.Spec.TenantId, ms.Spec.FunctionalArea),
+		PathType: &pathtype,
+		Backend: netv1.IngressBackend{
+			Service: &netv1.IngressServiceBackend{
+				Name: tms.ObjectMeta.Name,
+				Port: netv1.ServiceBackendPort{
+					Number: 8080,
+				},
+			},
+		},
+	}
+	return igpath, nil
+}
+
+// Generate ingress paths for all tenant microservices in instance namespace.
+func (r *TenantMicroserviceReconciler) generateIngressPaths(tms *v1beta1.TenantMicroservice) ([]netv1.HTTPIngressPath, error) {
+	tmslist := &v1beta1.TenantMicroserviceList{}
+	err := r.List(context.Background(), tmslist, client.InNamespace(tms.ObjectMeta.Namespace),
+		client.MatchingLabels{v1beta1.LABEL_TENANT: tms.Spec.TenantId})
+	if err != nil {
+		return nil, err
+	}
+
+	ipaths := make([]netv1.HTTPIngressPath, 0)
+	for _, tms := range tmslist.Items {
+		ipath, err := generateIngressPath(&tms)
+		if err != nil {
+			return nil, err
+		}
+		ipaths = append(ipaths, *ipath)
+	}
+	return ipaths, nil
+}
+
+// Generate ingress resource.
+func (r *TenantMicroserviceReconciler) generateIngress(tms *v1beta1.TenantMicroservice,
+	igname types.NamespacedName) (*netv1.Ingress, error) {
+	ipaths, err := r.generateIngressPaths(tms)
+	if err != nil {
+		return nil, err
+	}
+
+	return &netv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      igname.Name,
+			Namespace: igname.Namespace,
+			Annotations: map[string]string{
+				"kubernetes.io/ingress.class":                "nginx",
+				"nginx.ingress.kubernetes.io/rewrite-target": "/$2",
+			},
+		},
+		Spec: netv1.IngressSpec{
+			Rules: []netv1.IngressRule{
+				{
+					IngressRuleValue: netv1.IngressRuleValue{
+						HTTP: &netv1.HTTPIngressRuleValue{
+							Paths: ipaths,
+						},
+					},
+				},
+			},
+		},
+	}, nil
+}
+
+// Update ingress configuration based on tenant microservice changes.
+func (r *TenantMicroserviceReconciler) updateInstanceIngress(ctx context.Context, tms *v1beta1.TenantMicroservice) error {
+	igname := generateIngressName(tms.ObjectMeta.Namespace, tms.Spec.TenantId)
+	updated, err := r.generateIngress(tms, igname)
+	if err != nil {
+		return err
+	}
+
+	ingress := &netv1.Ingress{}
+	if err = r.Get(ctx, igname, ingress); err != nil {
+		if errors.IsNotFound(err) {
+			if err = r.Create(context.Background(), updated); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+	} else {
+		if err = r.Update(context.Background(), updated); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

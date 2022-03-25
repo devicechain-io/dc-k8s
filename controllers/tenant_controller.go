@@ -13,6 +13,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	v1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -34,15 +36,17 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	log := logf.FromContext(ctx)
 
 	tenant := &v1beta1.Tenant{}
-	err := r.Get(ctx, req.NamespacedName, tenant)
-	if err != nil {
-		log.Info(fmt.Sprintf("Handling deleted tenant: %+v", req.NamespacedName))
-		err := handleTenantDeleted(ctx, req)
-		if err != nil {
-			log.Error(err, "Unable to handle tenant delete")
-			return ctrl.Result{}, err
+	if err := r.Get(ctx, req.NamespacedName, tenant); err != nil {
+		if errors.IsNotFound(err) {
+			log.Info(fmt.Sprintf("Handling deleted tenant: %+v", req.NamespacedName))
+			err := r.handleTenantDeleted(ctx, req)
+			if err != nil {
+				log.Error(err, "Unable to handle tenant delete")
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, err
 	}
 	log.Info(fmt.Sprintf("Handling added/updated tenant: %+v", req.NamespacedName))
 
@@ -137,8 +141,18 @@ func getMicroservicesWithNoTenantMicroservice(ctx context.Context, tenant *v1bet
 	return missing, nil
 }
 
+// Delete tenant ingress resource.
+func (r *TenantReconciler) deleteTenantIngress(ctx context.Context, req ctrl.Request) error {
+	igname := generateIngressName(req.Namespace, req.Name)
+	ingress := &netv1.Ingress{}
+	if err := r.Get(ctx, igname, ingress); err == nil {
+		r.Delete(context.Background(), ingress)
+	}
+	return nil
+}
+
 // Handle a deleted tenant
-func handleTenantDeleted(ctx context.Context, req ctrl.Request) error {
+func (r *TenantReconciler) handleTenantDeleted(ctx context.Context, req ctrl.Request) error {
 	log := logf.FromContext(ctx)
 
 	// Find all existing tenant microservices for tenant
@@ -163,8 +177,13 @@ func handleTenantDeleted(ctx context.Context, req ctrl.Request) error {
 
 	// Delete config map associated with tenant
 	cmap, err := deleteTenantConfigMap(req.Name, req.Namespace)
+	if err != nil {
+		return err
+	}
 	log.Info(fmt.Sprintf("Deleted tenant config map '%s'.", cmap.ObjectMeta.Name))
-	return err
+
+	// Delete tenant ingress.
+	return r.deleteTenantIngress(ctx, req)
 }
 
 // Get name of tenant config map
