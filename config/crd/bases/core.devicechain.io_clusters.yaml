@@ -37,18 +37,18 @@ spec:
           spec:
             description: ClusterSpec defines the desired state of Cluster
             properties:
-              configId:
-                description: Domain name associated with cluster (for ingress filtering).
-                type: string
               description:
                 description: Human-readable description displayed for cluster.
+                type: string
+              domainName:
+                description: Domain name associated with cluster (for ingress filtering).
                 type: string
               name:
                 description: Human-readable name displayed for cluster.
                 type: string
             required:
-            - configId
             - description
+            - domainName
             - name
             type: object
           status:

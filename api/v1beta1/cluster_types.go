@@ -19,7 +19,7 @@ type ClusterSpec struct {
 	Description string `json:"description"`
 
 	// Domain name associated with cluster (for ingress filtering).
-	DomainName string `json:"configId"`
+	DomainName string `json:"domainName"`
 }
 
 // ClusterStatus defines the observed state of Cluster
