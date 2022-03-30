@@ -25,6 +25,7 @@ import (
 )
 
 const (
+	ENV_INSTANCE_ID        = "DC_INSTANCE_ID"
 	ENV_TENANT_ID          = "DC_TENANT_ID"
 	ENV_TENANT_NAME        = "DC_TENANT_NAME"
 	ENV_MICROSERVICE_ID    = "DC_MICROSERVICE_ID"
@@ -177,6 +178,10 @@ func (r *TenantMicroserviceReconciler) createDeploymentAndService(ctx context.Co
 							Image:           ms.Spec.Image,
 							ImagePullPolicy: ms.Spec.ImagePullPolicy,
 							Env: []corev1.EnvVar{
+								{
+									Name:  ENV_INSTANCE_ID,
+									Value: dct.ObjectMeta.Namespace,
+								},
 								{
 									Name:  ENV_TENANT_ID,
 									Value: dct.ObjectMeta.Name,
