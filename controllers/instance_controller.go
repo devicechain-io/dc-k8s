@@ -11,6 +11,7 @@ import (
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -49,6 +50,15 @@ func (r *InstanceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	instance := &corev1beta1.Instance{}
 	err := r.Get(ctx, req.NamespacedName, instance)
 	if err != nil {
+		if errors.IsNotFound(err) {
+			log.Info(fmt.Sprintf("Handling deleted tenant: %+v", req.NamespacedName))
+			err := r.handleInstanceDeleted(ctx, req)
+			if err != nil {
+				log.Error(err, "Unable to handle tenant delete")
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -83,6 +93,11 @@ func (r *InstanceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+// Handle case where instance has been deleted.
+func (r *InstanceReconciler) handleInstanceDeleted(ctx context.Context, req ctrl.Request) error {
+	return deleteInstanceConfigMap(ctx, req)
+}
+
 // Create a new namespace
 func createNamespace(nsid string) (*v1.Namespace, error) {
 	ns := &v1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nsid}}
@@ -108,8 +123,8 @@ func getNamespace(nsid string) (*v1.Namespace, error) {
 }
 
 // Get name of instance config map
-func getInstanceConfigMapName(dci *corev1beta1.Instance) string {
-	return fmt.Sprintf("%s-%s-%s", "dci", dci.ObjectMeta.Name, "config")
+func getInstanceConfigMapName(iname string) string {
+	return fmt.Sprintf("%s-%s-%s", "dci", iname, "config")
 }
 
 // Create a new instance config map
@@ -121,7 +136,7 @@ func createInstanceConfigMap(dci *corev1beta1.Instance) (*v1.ConfigMap, error) {
 
 	cmap := &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      getInstanceConfigMapName(dci),
+			Name:      getInstanceConfigMapName(dci.ObjectMeta.Name),
 			Namespace: dci.ObjectMeta.Name,
 		},
 		Data: map[string]string{
@@ -137,15 +152,32 @@ func createInstanceConfigMap(dci *corev1beta1.Instance) (*v1.ConfigMap, error) {
 	return cmap, nil
 }
 
-// Get config map associated with instance
+// Get config map associated with instance.
 func getInstanceConfigMap(dci *corev1beta1.Instance) (*v1.ConfigMap, error) {
 	cmap := &v1.ConfigMap{}
 	err := corev1beta1.V1Client.Get(context.Background(), client.ObjectKey{
-		Name:      getInstanceConfigMapName(dci),
+		Name:      getInstanceConfigMapName(dci.ObjectMeta.Name),
 		Namespace: dci.ObjectMeta.Name,
 	}, cmap)
 	if err != nil {
 		return nil, err
 	}
 	return cmap, nil
+}
+
+// Delete config map associated with instance.
+func deleteInstanceConfigMap(ctx context.Context, req ctrl.Request) error {
+	cmap := &v1.ConfigMap{}
+	err := corev1beta1.V1Client.Get(ctx, client.ObjectKey{
+		Name:      getInstanceConfigMapName(req.Name),
+		Namespace: req.Name,
+	}, cmap)
+	if err != nil {
+		return err
+	}
+	err = corev1beta1.V1Client.Delete(ctx, cmap)
+	if err != nil {
+		return err
+	}
+	return nil
 }

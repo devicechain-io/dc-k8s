@@ -220,7 +220,7 @@ func (r *TenantMicroserviceReconciler) createDeploymentAndService(ctx context.Co
 							VolumeSource: corev1.VolumeSource{
 								ConfigMap: &corev1.ConfigMapVolumeSource{
 									LocalObjectReference: corev1.LocalObjectReference{
-										Name: getInstanceConfigMapName(dci),
+										Name: getInstanceConfigMapName(dci.ObjectMeta.Name),
 									},
 								},
 							},
